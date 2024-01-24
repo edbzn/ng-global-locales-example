@@ -1,27 +1,119 @@
-# NgLocalesLazyLoading
+# Angular global locales example
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 17.1.0-rc.1.
+> Example of loading `@angular/common/locales/global` based on the browser's language or selected one.
 
-## Development server
+### 1. Set up assets in `angular.json`
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+```jsonc
+{
+  "builder": "@angular-devkit/build-angular:application",
+  "options": {
+    "polyfills": ["zone.js", "@angular/localize/init"],
+    "assets": [
+      {
+        "input": "node_modules/@angular/common/locales/global",
+        "glob": "**/*.js",
+        "output": "locales"
+      }
+    ]
+  }
+}
+```
 
-## Code scaffolding
+### 2. Create a provider to set the locale
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+```ts
+import { LOCALE_ID, Provider } from '@angular/core';
 
-## Build
+/**
+ * Set locale from the local storage or the browser's language.
+ */
+export function setLocaleProvider(): Provider {
+  return {
+    provide: LOCALE_ID,
+    useValue: localStorage.getItem('locale') || navigator.language || 'fr-FR',
+  };
+}
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+```
 
-## Running unit tests
+### 3. Create a provider to load the locale
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+```ts
+import { Provider, APP_INITIALIZER, LOCALE_ID } from '@angular/core';
+import { ScriptLoader } from './script-loader.service';
 
-## Running end-to-end tests
+/**
+ * Load the locale at app startup.
+ */
+export function loadLocaleProvider(): Provider {
+  return {
+    provide: APP_INITIALIZER,
+    useFactory: localeLoader,
+    deps: [ScriptLoader, LOCALE_ID],
+    multi: true,
+  };
+}
 
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
+function localeLoader(
+  scriptLoader: ScriptLoader,
+  localeId: string
+): () => Promise<void> {
+  return async () => {
+    /**
+     * Locale 'en-US' is already loaded by Angular.
+     */
+    if (localeId === 'en-US') return;
 
-## Further help
+    /**
+     * Normalize the locale id to match the locale file name.
+     */
+    const [locale, extension] = localeId.split('-');
+    const resource = locale === extension.toLowerCase() ? locale : localeId;
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+    /**
+     * Load the locale file.
+     *
+     * The locale file is a JavaScript file that exports a function
+     * that registers the locale data globally.
+     *
+     * This is possible because the locale files are copied by
+     * the Angular CLI with the `assets` option.
+     */
+    return scriptLoader.load(`locales/${resource}.js`);
+  };
+}
+```
+
+### 4. Create the ScriptLoader used to load the locale
+
+```ts
+import { DOCUMENT } from '@angular/common';
+import { Injectable, inject } from '@angular/core';
+
+@Injectable({ providedIn: 'root' })
+export class ScriptLoader {
+  private readonly document = inject(DOCUMENT);
+
+  /**
+   * Load a script file in the document.
+   */
+  load(src: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const script = this.document.createElement('script');
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject();
+      this.document.body.appendChild(script);
+    });
+  }
+}
+```
+
+### 5. Display internationalized content
+
+```html
+<div>
+  {{ date | date }}
+</div>
+```
